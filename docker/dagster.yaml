@@ -1,0 +1,53 @@
+storage:
+  postgres:
+    postgres_db:
+      username:
+        env: DAGSTER_POSTGRES_USER
+      password:
+        env: DAGSTER_POSTGRES_PASSWORD
+      hostname:
+        env: DAGSTER_POSTGRES_HOST
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      port:
+        env: DAGSTER_POSTGRES_PORT
+
+run_launcher:
+  module: dagster_celery
+  class: CeleryRunLauncher
+  config:
+    broker:
+      env: CELERY_BROKER_URL
+    backend:
+      env: CELERY_RESULT_BACKEND
+    include: ["ananke.dagster"]
+    config_source:
+      task_default_queue: default
+      task_routes:
+        "ananke.dagster.jobs.training.*": training
+        "ananke.dagster.jobs.prediction.*": prediction
+        "ananke.dagster.jobs.evaluation.*": evaluation
+
+compute_logs:
+  module: dagster.core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /dagster_home/logs
+
+local_artifact_storage:
+  module: dagster.core.storage.file_manager
+  class: LocalFileManager
+  config:
+    base_dir: /dagster_home/storage
+
+telemetry:
+  enabled: false
+
+run_monitoring:
+  enabled: true
+  max_resume_run_attempts: 3
+  poll_interval_seconds: 120
+
+daemon:
+  heartbeat_tolerance_seconds: 60
+  heartbeat_interval_seconds: 30

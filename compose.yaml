@@ -1,0 +1,243 @@
+version: '3.8'
+
+services:
+  # Redis - Message broker for Celery and caching
+  redis:
+    image: redis:7-alpine
+    container_name: ananke-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # PostgreSQL - Database for Dagster instance and experiment data
+  postgres:
+    image: postgres:15-alpine
+    container_name: ananke-postgres
+    environment:
+      POSTGRES_DB: ananke
+      POSTGRES_USER: ananke
+      POSTGRES_PASSWORD: ananke_password
+      POSTGRES_MULTIPLE_DATABASES: dagster
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ananke -d ananke"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # MLflow Tracking Server - Experiment tracking and model registry
+  mlflow:
+    image: python:3.11-slim
+    container_name: ananke-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql://ananke:ananke_password@postgres:5432/mlflow
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+      - ./requirements-mlflow.txt:/requirements.txt
+    command: >
+      sh -c "
+        pip install mlflow psycopg2-binary &&
+        mlflow server 
+          --backend-store-uri postgresql://ananke:ananke_password@postgres:5432/mlflow
+          --default-artifact-root /mlflow/artifacts
+          --host 0.0.0.0
+          --port 5000
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Dagster Daemon - Handles schedules, sensors, and run coordination
+  dagster-daemon:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ananke
+    container_name: ananke-dagster-daemon
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DAGSTER_POSTGRES_USER=ananke
+      - DAGSTER_POSTGRES_PASSWORD=ananke_password
+      - DAGSTER_POSTGRES_HOST=postgres
+      - DAGSTER_POSTGRES_DB=dagster
+      - DAGSTER_POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - ./:/app
+      - dagster_home:/dagster_home
+    working_dir: /app
+    command: dagster-daemon run
+    restart: unless-stopped
+
+  # Dagster Webserver - Web UI for Dagster
+  dagster-webserver:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ananke
+    container_name: ananke-dagster-webserver
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dagster-daemon:
+        condition: service_started
+    environment:
+      - DAGSTER_POSTGRES_USER=ananke
+      - DAGSTER_POSTGRES_PASSWORD=ananke_password
+      - DAGSTER_POSTGRES_HOST=postgres
+      - DAGSTER_POSTGRES_DB=dagster
+      - DAGSTER_POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+      - dagster_home:/dagster_home
+    working_dir: /app
+    command: dagster-webserver -h 0.0.0.0 -p 3000
+    restart: unless-stopped
+
+  # Celery Worker 1 - Training jobs
+  celery-worker-training:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ananke
+    container_name: ananke-celery-worker-training
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DAGSTER_POSTGRES_USER=ananke
+      - DAGSTER_POSTGRES_PASSWORD=ananke_password
+      - DAGSTER_POSTGRES_HOST=postgres
+      - DAGSTER_POSTGRES_DB=dagster
+      - DAGSTER_POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./:/app
+      - dagster_home:/dagster_home
+    working_dir: /app
+    command: >
+      sh -c "
+        dagster api grpc --python-file ananke/dagster/__init__.py --host 0.0.0.0 --port 4000 &
+        celery -A ananke.dagster worker --loglevel=info --queues=training --concurrency=2
+      "
+    restart: unless-stopped
+
+  # Celery Worker 2 - Prediction jobs
+  celery-worker-prediction:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ananke
+    container_name: ananke-celery-worker-prediction
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DAGSTER_POSTGRES_USER=ananke
+      - DAGSTER_POSTGRES_PASSWORD=ananke_password
+      - DAGSTER_POSTGRES_HOST=postgres
+      - DAGSTER_POSTGRES_DB=dagster
+      - DAGSTER_POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./:/app
+      - dagster_home:/dagster_home
+    working_dir: /app
+    command: >
+      sh -c "
+        dagster api grpc --python-file ananke/dagster/__init__.py --host 0.0.0.0 --port 4001 &
+        celery -A ananke.dagster worker --loglevel=info --queues=prediction --concurrency=2
+      "
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ananke-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO setup - creates required buckets
+  minio-setup:
+    image: minio/mc:latest
+    container_name: ananke-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: |
+      /bin/sh -c '
+      sleep 5 &&
+      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin &&
+      /usr/bin/mc mb --ignore-existing myminio/mlflow &&
+      echo "MinIO setup completed successfully"
+      '
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  mlflow_artifacts:
+    driver: local
+  dagster_home:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  default:
+    name: ananke-network
