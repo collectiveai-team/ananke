@@ -17,7 +17,7 @@ from ananke.core.configs.model.config import (
 )
 
 app = typer.Typer(
-    help="Timeseries Jarvis - A comprehensive timeseries experimentation framework"
+    help="timeseries_jarvis - A comprehensive timeseries experimentation framework"
 )
 console = Console()
 
@@ -38,7 +38,7 @@ def init(
         Path.cwd(), help="Output directory for the project"
     ),
 ):
-    """Initialize a new timeseries project with example configurations."""
+    """Initialize a new TSJ project with example configurations."""
     project_path = output_dir / project_name
     project_path.mkdir(parents=True, exist_ok=True)
 
@@ -128,6 +128,7 @@ Use the TSJ CLI or create custom experiment scripts in the `experiments/` direct
     console.print("📁 Directory structure created")
     console.print("⚙️  Example configurations generated")
     console.print("🧪 Example experiment script created")
+    console.print("Project initialized successfully")
 
 
 @app.command()
@@ -198,66 +199,66 @@ def run_experiment(
         raise typer.Exit(1)
 
 
-@app.command()
-def validate_config(
-    config_path: Path = typer.Argument(..., help="Path to configuration file"),
-    config_type: str = typer.Option("auto", help="Type of config (data, model, auto)"),
+# Create validate subcommand group
+validate_app = typer.Typer(help="Validate configuration files")
+app.add_typer(validate_app, name="validate")
+
+@validate_app.command("data-config")
+def validate_data_config(
+    config_path: Path = typer.Argument(..., help="Path to data configuration file"),
 ):
-    """Validate a configuration file."""
+    """Validate a data configuration file."""
     if not config_path.exists():
         console.print(f"❌ Configuration file not found: {config_path}")
         raise typer.Exit(1)
 
     try:
-        if config_type == "auto":
-            # Auto-detect based on file location or content
-            if "data" in str(config_path):
-                config_type = "data"
-            elif "model" in str(config_path):
-                config_type = "model"
-            else:
-                console.print(
-                    "⚠️  Could not auto-detect config type. Please specify --config-type"
-                )
-                raise typer.Exit(1)
+        import yaml
+        from ananke.core.configs.data.config import DataConfig
 
-        if config_type == "data":
-            import yaml
+        with open(config_path) as f:
+            config_data = yaml.safe_load(f)
 
-            from ananke.core.configs.data.config import DataConfig
-
-            with open(config_path) as f:
-                config_data = yaml.safe_load(f)
-
-            config = DataConfig(**config_data)
-            console.print(f"✅ Data configuration is valid: {config.name}")
-
-        elif config_type == "model":
-            import yaml
-
-            from ananke.core.configs.model.config import ModelConfig
-
-            with open(config_path) as f:
-                config_data = yaml.safe_load(f)
-
-            config = ModelConfig(**config_data)
-            console.print(f"✅ Model configuration is valid: {config.name}")
-
-        else:
-            console.print(f"❌ Unknown config type: {config_type}")
-            raise typer.Exit(1)
+        config = DataConfig(**config_data)
+        console.print(f"✅ Data configuration is valid: {config.name}")
 
     except Exception as e:
-        console.print(f"❌ Configuration validation failed: {e}")
+        console.print(f"❌ Validation failed: {e}")
+        raise typer.Exit(1)
+
+@validate_app.command("model-config")
+def validate_model_config(
+    config_path: Path = typer.Argument(..., help="Path to model configuration file"),
+):
+    """Validate a model configuration file."""
+    if not config_path.exists():
+        console.print(f"❌ Configuration file not found: {config_path}")
+        raise typer.Exit(1)
+
+    try:
+        import yaml
+        from ananke.core.configs.model.config import ModelConfig
+
+        with open(config_path) as f:
+            config_data = yaml.safe_load(f)
+
+        config = ModelConfig(**config_data)
+        console.print(f"✅ Model configuration is valid: {config.name}")
+
+    except Exception as e:
+        console.print(f"❌ Validation failed: {e}")
         raise typer.Exit(1)
 
 
 @app.command()
 def version():
     """Show version information."""
-    from tsj import __version__
+    try:
+        from ananke import __version__
+    except ImportError:
+        __version__ = "0.1.0"
 
-    console.print(f"Timeseries Jarvis (TSJ) version {__version__}")
+    console.print(f"timeseries_jarvis (TSJ) version {__version__}")
 
 
 def main():

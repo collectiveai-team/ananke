@@ -290,3 +290,23 @@ class DartsRunner(BaseRunner):
         else:
             logger.warning("Model does not support backtesting")
             return None
+
+    def _load_airpassengers_data(self) -> TimeSeries:
+        """Load AirPassengers dataset (private method for testing)."""
+        return AirPassengersDataset().load()
+
+    def _prepare_darts_data(self, data: pd.DataFrame) -> tuple[TimeSeries, TimeSeries]:
+        """Prepare data for Darts models (private method for testing)."""
+        # Convert DataFrame to TimeSeries
+        ts = TimeSeries.from_dataframe(
+            data,
+            time_col="timestamp",
+            value_cols=[self.data_config.target_feature],
+        )
+        
+        # Split into train and test
+        train_size = int(0.8 * len(ts))
+        train_ts = ts[:train_size]
+        test_ts = ts[train_size:]
+        
+        return train_ts, test_ts

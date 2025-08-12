@@ -9,14 +9,16 @@ from ananke.core.preprocess.base import BasePreprocessor
 class ForwardFillImputer(BasePreprocessor):
     """Forward fill imputer for timeseries data."""
 
-    def __init__(self, limit: int | None = None):
+    def __init__(self, columns: list[str] | None = None, limit: int | None = None):
         """
         Initialize forward fill imputer.
 
         Args:
+            columns: List of columns to impute. If None, imputes all columns.
             limit: Maximum number of consecutive NaN values to forward fill
         """
-        super().__init__(limit=limit)
+        super().__init__(columns=columns, limit=limit)
+        self.columns = columns
         self.limit = limit
 
     def fit(self, data: pd.DataFrame | np.ndarray) -> "ForwardFillImputer":
@@ -30,7 +32,14 @@ class ForwardFillImputer(BasePreprocessor):
             raise ValueError("Imputer is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.fillna(method="ffill", limit=self.limit)
+            result = data.copy()
+            if self.columns is not None:
+                # Impute only specified columns
+                result[self.columns] = result[self.columns].fillna(method="ffill", limit=self.limit)
+            else:
+                # Impute all columns
+                result = result.fillna(method="ffill", limit=self.limit)
+            return result
         else:
             # For numpy arrays, convert to DataFrame temporarily
             df = pd.DataFrame(data)
@@ -47,14 +56,16 @@ class ForwardFillImputer(BasePreprocessor):
 class BackwardFillImputer(BasePreprocessor):
     """Backward fill imputer for timeseries data."""
 
-    def __init__(self, limit: int | None = None):
+    def __init__(self, columns: list[str] | None = None, limit: int | None = None):
         """
         Initialize backward fill imputer.
 
         Args:
+            columns: List of columns to impute. If None, imputes all columns.
             limit: Maximum number of consecutive NaN values to backward fill
         """
-        super().__init__(limit=limit)
+        super().__init__(columns=columns, limit=limit)
+        self.columns = columns
         self.limit = limit
 
     def fit(self, data: pd.DataFrame | np.ndarray) -> "BackwardFillImputer":
@@ -68,7 +79,14 @@ class BackwardFillImputer(BasePreprocessor):
             raise ValueError("Imputer is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.fillna(method="bfill", limit=self.limit)
+            result = data.copy()
+            if self.columns is not None:
+                # Impute only specified columns
+                result[self.columns] = result[self.columns].fillna(method="bfill", limit=self.limit)
+            else:
+                # Impute all columns
+                result = result.fillna(method="bfill", limit=self.limit)
+            return result
         else:
             # For numpy arrays, convert to DataFrame temporarily
             df = pd.DataFrame(data)
@@ -85,15 +103,17 @@ class BackwardFillImputer(BasePreprocessor):
 class InterpolateImputer(BasePreprocessor):
     """Interpolation imputer for timeseries data."""
 
-    def __init__(self, method: str = "linear", limit: int | None = None):
+    def __init__(self, columns: list[str] | None = None, method: str = "linear", limit: int | None = None):
         """
         Initialize interpolation imputer.
 
         Args:
+            columns: List of columns to impute. If None, imputes all columns.
             method: Interpolation method ('linear', 'polynomial', 'spline', etc.)
             limit: Maximum number of consecutive NaN values to interpolate
         """
-        super().__init__(method=method, limit=limit)
+        super().__init__(columns=columns, method=method, limit=limit)
+        self.columns = columns
         self.method = method
         self.limit = limit
 
@@ -108,7 +128,14 @@ class InterpolateImputer(BasePreprocessor):
             raise ValueError("Imputer is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.interpolate(method=self.method, limit=self.limit)
+            result = data.copy()
+            if self.columns is not None:
+                # Impute only specified columns
+                result[self.columns] = result[self.columns].interpolate(method=self.method, limit=self.limit)
+            else:
+                # Impute all columns
+                result = result.interpolate(method=self.method, limit=self.limit)
+            return result
         else:
             # For numpy arrays, convert to DataFrame temporarily
             df = pd.DataFrame(data)
@@ -125,19 +152,33 @@ class InterpolateImputer(BasePreprocessor):
 class MeanImputer(BasePreprocessor):
     """Mean imputer for timeseries data."""
 
-    def __init__(self):
-        """Initialize mean imputer."""
-        super().__init__()
+    def __init__(self, columns: list[str] | None = None):
+        """Initialize mean imputer.
+
+        Args:
+            columns: List of columns to impute. If None, imputes all numeric columns.
+        """
+        super().__init__(columns=columns)
+        self.columns = columns
         self.means = None
 
     def fit(self, data: pd.DataFrame | np.ndarray) -> "MeanImputer":
         """Fit the imputer by computing means."""
         if isinstance(data, pd.DataFrame):
-            self.means = data.mean()
-            self.columns = data.columns
+            if self.columns is not None:
+                # Only compute means for specified columns
+                self.means = data[self.columns].mean()
+                self.fitted_columns = self.columns
+            else:
+                # Compute means for all numeric columns
+                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+                self.means = data[numeric_cols].mean()
+                self.fitted_columns = numeric_cols
+            self.original_columns = data.columns
         else:
             self.means = np.nanmean(data, axis=0)
-            self.columns = None
+            self.fitted_columns = None
+            self.original_columns = None
 
         self.is_fitted = True
         return self
@@ -148,7 +189,11 @@ class MeanImputer(BasePreprocessor):
             raise ValueError("Imputer is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.fillna(self.means)
+            result = data.copy()
+            if self.fitted_columns is not None:
+                # Impute only the fitted columns
+                result[self.fitted_columns] = result[self.fitted_columns].fillna(self.means)
+            return result
         else:
             # For numpy arrays
             result = data.copy()
@@ -167,19 +212,33 @@ class MeanImputer(BasePreprocessor):
 class MedianImputer(BasePreprocessor):
     """Median imputer for timeseries data."""
 
-    def __init__(self):
-        """Initialize median imputer."""
-        super().__init__()
+    def __init__(self, columns: list[str] | None = None):
+        """Initialize median imputer.
+
+        Args:
+            columns: List of columns to impute. If None, imputes all numeric columns.
+        """
+        super().__init__(columns=columns)
+        self.columns = columns
         self.medians = None
 
     def fit(self, data: pd.DataFrame | np.ndarray) -> "MedianImputer":
         """Fit the imputer by computing medians."""
         if isinstance(data, pd.DataFrame):
-            self.medians = data.median()
-            self.columns = data.columns
+            if self.columns is not None:
+                # Only compute medians for specified columns
+                self.medians = data[self.columns].median()
+                self.fitted_columns = self.columns
+            else:
+                # Compute medians for all numeric columns
+                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+                self.medians = data[numeric_cols].median()
+                self.fitted_columns = numeric_cols
+            self.original_columns = data.columns
         else:
             self.medians = np.nanmedian(data, axis=0)
-            self.columns = None
+            self.fitted_columns = None
+            self.original_columns = None
 
         self.is_fitted = True
         return self
@@ -190,7 +249,11 @@ class MedianImputer(BasePreprocessor):
             raise ValueError("Imputer is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.fillna(self.medians)
+            result = data.copy()
+            if self.fitted_columns is not None:
+                # Impute only the fitted columns
+                result[self.fitted_columns] = result[self.fitted_columns].fillna(self.medians)
+            return result
         else:
             # For numpy arrays
             result = data.copy()

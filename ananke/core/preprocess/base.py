@@ -53,21 +53,29 @@ class BasePreprocessor(ABC):
 class PreprocessingPipeline:
     """Pipeline for chaining multiple preprocessing steps."""
 
-    def __init__(self, steps: list[tuple[str, BasePreprocessor]]):
+    def __init__(self, steps: list[tuple[str, BasePreprocessor]] | list[BasePreprocessor]):
         """
         Initialize preprocessing pipeline.
 
         Args:
-            steps: List of (name, preprocessor) tuples
+            steps: List of (name, preprocessor) tuples or list of preprocessor objects
         """
-        self.steps = steps
-        self.named_steps = {name: preprocessor for name, preprocessor in steps}
+        # Handle both formats: list of tuples or list of preprocessors
+        if steps and isinstance(steps[0], tuple):
+            # Format: [(name, preprocessor), ...]
+            self.steps = steps
+            self.named_steps = dict(steps)
+        else:
+            # Format: [preprocessor, ...]
+            # Generate names automatically
+            self.steps = [(f"step_{i}", preprocessor) for i, preprocessor in enumerate(steps)]
+            self.named_steps = dict(self.steps)
 
     def fit(self, data: pd.DataFrame | np.ndarray) -> "PreprocessingPipeline":
         """Fit all preprocessing steps."""
         current_data = data
 
-        for name, preprocessor in self.steps:
+        for _, preprocessor in self.steps:
             preprocessor.fit(current_data)
             current_data = preprocessor.transform(current_data)
 
@@ -99,7 +107,7 @@ class PreprocessingPipeline:
         current_data = data
 
         # Apply inverse transforms in reverse order
-        for name, preprocessor in reversed(self.steps):
+        for _, preprocessor in reversed(self.steps):
             current_data = preprocessor.inverse_transform(current_data)
 
         return current_data
@@ -107,3 +115,8 @@ class PreprocessingPipeline:
     def get_step(self, name: str) -> BasePreprocessor:
         """Get a preprocessing step by name."""
         return self.named_steps[name]
+
+    def __repr__(self) -> str:
+        """Return string representation of the pipeline."""
+        step_names = [f"{name}: {preprocessor.__class__.__name__}" for name, preprocessor in self.steps]
+        return f"PreprocessingPipeline(steps=[{', '.join(step_names)}])"

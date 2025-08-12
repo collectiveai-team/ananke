@@ -73,61 +73,42 @@ class BaseExperiment(ABC):
         logger.info(f"Starting experiment: {self.name}")
 
         # Setup MLflow
-        if self.mlflow_tracking_uri:
-            setup_mlflow(self.mlflow_tracking_uri, self.mlflow_experiment_name)
+        self._setup_mlflow()
+        
+        # Setup output directory
+        self._setup_output_directory()
 
-        # Get configurations
-        data_configs = self.setup_data_configs()
-        model_configs = self.setup_model_configs()
-
-        logger.info(
-            f"Running {len(data_configs)} data configs x {len(model_configs)} model configs"
-        )
+        # Get all run combinations
+        combinations = self._generate_run_combinations()
+        
+        logger.info(f"Running {len(combinations)} experiment combinations")
 
         experiment_results = {}
 
         # Run all combinations
-        for data_config in data_configs:
-            for model_config in model_configs:
-                run_name = f"{data_config.name}_{model_config.name}"
-                logger.info(f"Running: {run_name}")
+        for combo in combinations:
+            data_config = combo["data_config"]
+            model_config = combo["model_config"]
+            run_name = combo["run_name"]
+            logger.info(f"Running: {run_name}")
 
-                try:
-                    # Create runner
-                    runner = self.create_runner(data_config, model_config)
-                    self.runners.append(runner)
-
-                    # Run experiment
-                    with start_run(
-                        run_name=run_name,
-                        experiment_name=self.mlflow_experiment_name,
-                        tracking_uri=self.mlflow_tracking_uri,
-                        tags={
-                            "experiment": self.name,
-                            "data_config": data_config.name,
-                            "model_config": model_config.name,
-                            "model_type": model_config.type,
-                        },
-                    ):
-                        # Log experiment metadata
-                        mlflow.log_param("experiment_name", self.name)
-                        if self.description:
-                            mlflow.log_param("experiment_description", self.description)
-
-                        # Run the experiment
-                        results = runner.run(run_name)
-                        experiment_results[run_name] = results
-
-                        logger.info(f"Completed: {run_name}")
-
-                except Exception as e:
-                    logger.error(f"Error in run {run_name}: {str(e)}")
-                    experiment_results[run_name] = {"error": str(e)}
+            try:
+                results = self._run_single_experiment(data_config, model_config, run_name)
+                experiment_results[run_name] = results
+                
+                if "error" not in results:
+                    logger.info(f"Completed: {run_name}")
+                else:
+                    logger.error(f"Failed: {run_name}")
+            except Exception as e:
+                logger.error(f"Exception in run {run_name}: {str(e)}")
+                experiment_results[run_name] = {"error": str(e)}
 
         self.results = experiment_results
 
         # Save summary results
         self.save_experiment_summary()
+        self.save_results()
 
         logger.info(f"Experiment completed: {self.name}")
         return experiment_results
@@ -199,7 +180,7 @@ class BaseExperiment(ABC):
             metrics: List of metrics to compare
 
         Returns:
-            DataFrame with comparison results
+            DataFrame with comparison results sorted by first metric
         """
         comparison_data = []
 
@@ -210,7 +191,102 @@ class BaseExperiment(ABC):
                     row[metric] = results.get(metric, None)
                 comparison_data.append(row)
 
-        return pd.DataFrame(comparison_data)
+        df = pd.DataFrame(comparison_data)
+        
+        # Sort by the first metric in ascending order (best performance first)
+        if len(df) > 0 and len(metrics) > 0 and metrics[0] in df.columns:
+            df = df.sort_values(by=metrics[0], ascending=True).reset_index(drop=True)
+        
+        return df
+
+    def _setup_mlflow(self) -> None:
+        """Setup MLflow tracking (private method for testing)."""
+        if self.mlflow_tracking_uri:
+            setup_mlflow(self.mlflow_tracking_uri, self.mlflow_experiment_name)
+        else:
+            mlflow.set_experiment(self.mlflow_experiment_name)
+
+    def _setup_output_directory(self) -> None:
+        """Setup output directory structure (private method for testing)."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        (self.output_dir / "results").mkdir(exist_ok=True)
+        (self.output_dir / "runs").mkdir(exist_ok=True)
+        (self.output_dir / "logs").mkdir(exist_ok=True)
+
+    def _generate_run_combinations(self) -> list[dict[str, Any]]:
+        """Generate all combinations of data and model configs (private method for testing)."""
+        data_configs = self.setup_data_configs()
+        model_configs = self.setup_model_configs()
+        
+        combinations = []
+        for data_config in data_configs:
+            for model_config in model_configs:
+                run_name = f"{data_config.name}_{model_config.name}"
+                combinations.append({
+                    "data_config": data_config,
+                    "model_config": model_config,
+                    "run_name": run_name
+                })
+        
+        return combinations
+
+    def _run_single_experiment(
+        self, data_config: DataConfig, model_config: ModelConfig, run_name: str
+    ) -> dict[str, Any]:
+        """Run a single experiment configuration (private method for testing)."""
+        try:
+            # Create runner
+            runner = self.create_runner(data_config, model_config)
+            self.runners.append(runner)
+
+            # Run experiment
+            with start_run(
+                run_name=run_name,
+                experiment_name=self.mlflow_experiment_name,
+                tracking_uri=self.mlflow_tracking_uri,
+                tags={
+                    "experiment": self.name,
+                    "data_config": data_config.name,
+                    "model_config": model_config.name,
+                    "model_type": model_config.type,
+                },
+            ):
+                # Log experiment metadata
+                mlflow.log_param("experiment_name", self.name)
+                if self.description:
+                    mlflow.log_param("experiment_description", self.description)
+
+                # Run the experiment
+                results = runner.run(run_name)
+                return results
+
+        except Exception as e:
+            logger.error(f"Error in run {run_name}: {str(e)}")
+            return {"error": str(e)}
+
+    def save_results(self) -> None:
+        """Save experiment results to files."""
+        results_dir = self.output_dir / "results"
+        results_dir.mkdir(exist_ok=True)
+        
+        # Save detailed results as JSON
+        results_file = results_dir / "experiment_results.json"
+        with open(results_file, "w") as f:
+            json.dump(self.results, f, default=str, indent=2)
+        
+        # Save comparison CSV if we have results
+        if self.results:
+            comparison_data = []
+            for run_name, results in self.results.items():
+                if "error" not in results:
+                    row = {"run_name": run_name}
+                    row.update(results)
+                    comparison_data.append(row)
+            
+            if comparison_data:
+                comparison_df = pd.DataFrame(comparison_data)
+                comparison_file = results_dir / "run_comparison.csv"
+                comparison_df.to_csv(comparison_file, index=False)
 
     def cleanup(self) -> None:
         """Clean up experiment resources."""

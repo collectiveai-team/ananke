@@ -10,16 +10,25 @@ from ananke.core.preprocess.base import BasePreprocessor
 class EWMSmoother(BasePreprocessor):
     """Exponentially weighted moving average smoother."""
 
-    def __init__(self, alpha: float = 0.3, adjust: bool = True):
+    def __init__(self, columns: list[str] | None = None, alpha: float | None = None, span: int | None = None, adjust: bool = True):
         """
         Initialize EWM smoother.
 
         Args:
-            alpha: Smoothing factor (0 < alpha <= 1)
+            columns: List of columns to smooth. If None, smooths all numeric columns.
+            alpha: Smoothing factor (0 < alpha <= 1). Mutually exclusive with span.
+            span: Span for the exponentially weighted window. Mutually exclusive with alpha.
             adjust: Whether to adjust for bias
         """
-        super().__init__(alpha=alpha, adjust=adjust)
+        if alpha is not None and span is not None:
+            raise ValueError("Cannot specify both alpha and span")
+        if alpha is None and span is None:
+            alpha = 0.3  # Default value
+
+        super().__init__(columns=columns, alpha=alpha, span=span, adjust=adjust)
+        self.columns = columns
         self.alpha = alpha
+        self.span = span
         self.adjust = adjust
 
     def fit(self, data: pd.DataFrame | np.ndarray) -> "EWMSmoother":
@@ -33,7 +42,21 @@ class EWMSmoother(BasePreprocessor):
             raise ValueError("Smoother is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.ewm(alpha=self.alpha, adjust=self.adjust).mean()
+            result = data.copy()
+            if self.columns is not None:
+                # Smooth only specified columns
+                if self.alpha is not None:
+                    result[self.columns] = result[self.columns].ewm(alpha=self.alpha, adjust=self.adjust).mean()
+                else:
+                    result[self.columns] = result[self.columns].ewm(span=self.span, adjust=self.adjust).mean()
+            else:
+                # Smooth all numeric columns
+                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+                if self.alpha is not None:
+                    result[numeric_cols] = result[numeric_cols].ewm(alpha=self.alpha, adjust=self.adjust).mean()
+                else:
+                    result[numeric_cols] = result[numeric_cols].ewm(span=self.span, adjust=self.adjust).mean()
+            return result
         else:
             # For numpy arrays, convert to DataFrame temporarily
             df = pd.DataFrame(data)
@@ -52,17 +75,19 @@ class RollingMeanSmoother(BasePreprocessor):
     """Rolling mean smoother."""
 
     def __init__(
-        self, window: int = 5, center: bool = True, min_periods: int | None = None
+        self, columns: list[str] | None = None, window: int = 5, center: bool = True, min_periods: int | None = None
     ):
         """
         Initialize rolling mean smoother.
 
         Args:
+            columns: List of columns to smooth. If None, smooths all numeric columns.
             window: Size of the rolling window
             center: Whether to center the window
             min_periods: Minimum number of observations required
         """
-        super().__init__(window=window, center=center, min_periods=min_periods)
+        super().__init__(columns=columns, window=window, center=center, min_periods=min_periods)
+        self.columns = columns
         self.window = window
         self.center = center
         self.min_periods = min_periods
@@ -78,9 +103,19 @@ class RollingMeanSmoother(BasePreprocessor):
             raise ValueError("Smoother is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.rolling(
-                window=self.window, center=self.center, min_periods=self.min_periods
-            ).mean()
+            result = data.copy()
+            if self.columns is not None:
+                # Smooth only specified columns
+                result[self.columns] = result[self.columns].rolling(
+                    window=self.window, center=self.center, min_periods=self.min_periods
+                ).mean()
+            else:
+                # Smooth all numeric columns
+                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+                result[numeric_cols] = result[numeric_cols].rolling(
+                    window=self.window, center=self.center, min_periods=self.min_periods
+                ).mean()
+            return result
         else:
             # For numpy arrays, convert to DataFrame temporarily
             df = pd.DataFrame(data)
@@ -101,17 +136,19 @@ class SavgolSmoother(BasePreprocessor):
     """Savitzky-Golay filter smoother."""
 
     def __init__(
-        self, window_length: int = 11, polyorder: int = 3, mode: str = "interp"
+        self, columns: list[str] | None = None, window_length: int = 11, polyorder: int = 3, mode: str = "interp"
     ):
         """
         Initialize Savitzky-Golay smoother.
 
         Args:
+            columns: List of columns to smooth. If None, smooths all numeric columns.
             window_length: Length of the filter window (must be odd)
             polyorder: Order of the polynomial used to fit the samples
             mode: How to handle boundaries ('interp', 'mirror', 'constant', etc.)
         """
-        super().__init__(window_length=window_length, polyorder=polyorder, mode=mode)
+        super().__init__(columns=columns, window_length=window_length, polyorder=polyorder, mode=mode)
+        self.columns = columns
         self.window_length = window_length
         self.polyorder = polyorder
         self.mode = mode
@@ -131,16 +168,18 @@ class SavgolSmoother(BasePreprocessor):
             raise ValueError("Smoother is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            smoothed_data = data.copy()
-            for col in data.columns:
+            result = data.copy()
+            cols_to_smooth = self.columns if self.columns is not None else data.select_dtypes(include=[np.number]).columns.tolist()
+
+            for col in cols_to_smooth:
                 if len(data) >= self.window_length:
-                    smoothed_data[col] = savgol_filter(
+                    result[col] = savgol_filter(
                         data[col].values,
                         self.window_length,
                         self.polyorder,
                         mode=self.mode,
                     )
-            return smoothed_data
+            return result
         else:
             if len(data) < self.window_length:
                 return data
@@ -168,15 +207,17 @@ class SavgolSmoother(BasePreprocessor):
 class MedianSmoother(BasePreprocessor):
     """Median filter smoother."""
 
-    def __init__(self, window: int = 5, center: bool = True):
+    def __init__(self, columns: list[str] | None = None, window: int = 5, center: bool = True):
         """
         Initialize median smoother.
 
         Args:
+            columns: List of columns to smooth. If None, smooths all numeric columns.
             window: Size of the rolling window
             center: Whether to center the window
         """
-        super().__init__(window=window, center=center)
+        super().__init__(columns=columns, window=window, center=center)
+        self.columns = columns
         self.window = window
         self.center = center
 
@@ -191,7 +232,15 @@ class MedianSmoother(BasePreprocessor):
             raise ValueError("Smoother is not fitted")
 
         if isinstance(data, pd.DataFrame):
-            return data.rolling(window=self.window, center=self.center).median()
+            result = data.copy()
+            if self.columns is not None:
+                # Smooth only specified columns
+                result[self.columns] = result[self.columns].rolling(window=self.window, center=self.center).median()
+            else:
+                # Smooth all numeric columns
+                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+                result[numeric_cols] = result[numeric_cols].rolling(window=self.window, center=self.center).median()
+            return result
         else:
             # For numpy arrays, convert to DataFrame temporarily
             df = pd.DataFrame(data)

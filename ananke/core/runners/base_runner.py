@@ -145,9 +145,15 @@ class BaseRunner(ABC):
         except Exception as e:
             logger.error(f"Error during benchmark run: {str(e)}", exc_info=True)
             self.results["error"] = str(e)
+            self.results["status"] = "failed"
 
         self.end_time = time.time()
         self.results["runtime_seconds"] = self.end_time - self.start_time
+        
+        # Set status if not already set (e.g., by error handling)
+        if "status" not in self.results:
+            self.results["status"] = "completed"
+            
         logger.info(
             f"Benchmark run completed in {self.results['runtime_seconds']:.2f} seconds"
         )

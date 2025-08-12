@@ -9,6 +9,11 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
+try:
+    import mlflow
+except ImportError:
+    mlflow = None
+
 from ananke.core.configs.data.config import DataConfig
 from ananke.core.configs.model.config import ModelConfig
 from ananke.core.data.meta.dataset import TimeSeriesData, TimeSeriesDataset
@@ -93,12 +98,23 @@ class SklearnRunner(BaseRunner):
         self.X_test = X_test
         self.y_test = y_test
 
-        # Create TimeSeriesData objects
-        train_data = [TimeSeriesData(series=X_train, target=y_train)]
-        val_data = (
-            [TimeSeriesData(series=X_val, target=y_val)] if X_val is not None else None
-        )
-        test_data = [TimeSeriesData(series=X_test, target=y_test)]
+        # Create TimeSeriesData objects (convert numpy arrays to DataFrames)
+        feature_cols = self.data_config.features
+        target_col = self.data_config.target_feature
+
+        train_series_df = pd.DataFrame(X_train, columns=feature_cols)
+        train_target_df = pd.DataFrame(y_train.reshape(-1, 1), columns=[target_col])
+        train_data = [TimeSeriesData(series=train_series_df, target=train_target_df)]
+
+        val_data = None
+        if X_val is not None:
+            val_series_df = pd.DataFrame(X_val, columns=feature_cols)
+            val_target_df = pd.DataFrame(y_val.reshape(-1, 1), columns=[target_col])
+            val_data = [TimeSeriesData(series=val_series_df, target=val_target_df)]
+
+        test_series_df = pd.DataFrame(X_test, columns=feature_cols)
+        test_target_df = pd.DataFrame(y_test.reshape(-1, 1), columns=[target_col])
+        test_data = [TimeSeriesData(series=test_series_df, target=test_target_df)]
 
         return TimeSeriesDataset(
             train_data=train_data, val_data=val_data, test_data=test_data
@@ -238,3 +254,78 @@ class SklearnRunner(BaseRunner):
             return dict(zip(feature_names, np.abs(coef), strict=False))
 
         return None
+
+    def _create_model(self) -> BaseEstimator:
+        """Create and return the scikit-learn model (private method for testing)."""
+        model_class = self.model_config.model_class
+        model_params = self.model_config.model_params.copy()
+        return model_class(**model_params)
+
+    def _load_data(self) -> pd.DataFrame:
+        """Load and return data (private method for testing)."""
+        # This is a placeholder implementation for testing
+        # In practice, this would load real data based on data_config
+        n_samples = 100
+
+        # Generate synthetic data
+        dates = pd.date_range("2023-01-01", periods=n_samples, freq="h")
+        data = {
+            "timestamp": dates,
+            **{
+                feature: np.random.randn(n_samples)
+                for feature in self.data_config.features
+            },
+            self.data_config.target_feature: np.random.randn(n_samples),
+        }
+
+        return pd.DataFrame(data)
+
+    def _perform_hyperparameter_search(self, X_train: np.ndarray, y_train: np.ndarray) -> BaseEstimator:
+        """Perform hyperparameter search (private method for testing)."""
+        if not self.model_config.hyperparameter_search:
+            raise ValueError("Hyperparameter search not configured")
+
+        search_config = self.model_config.hyperparameter_search
+        model_class = self.model_config.model_class
+        base_model = model_class(**self.model_config.model_params)
+
+        if search_config.get("method") == "grid":
+            from sklearn.model_selection import GridSearchCV
+            search_model = GridSearchCV(
+                base_model,
+                param_grid=search_config.get("param_grid", {}),
+                cv=search_config.get("cv", 5),
+                scoring=search_config.get("scoring"),
+                n_jobs=-1
+            )
+        else:
+            from sklearn.model_selection import RandomizedSearchCV
+            search_model = RandomizedSearchCV(
+                base_model,
+                param_distributions=search_config.get("param_grid", {}),
+                n_iter=search_config.get("n_iter", 10),
+                cv=search_config.get("cv", 5),
+                scoring=search_config.get("scoring"),
+                n_jobs=-1
+            )
+
+        search_model.fit(X_train, y_train)
+        return search_model.best_estimator_
+
+    def _prepare_features(self, data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Prepare features for training and testing (private method for testing)."""
+        # Extract features and target
+        feature_cols = self.data_config.features
+        target_col = self.data_config.target_feature
+
+        X = data[feature_cols].values
+        y = data[target_col].values
+
+        # Split into train/test (80/20 split)
+        split_idx = int(0.8 * len(X))
+        X_train = X[:split_idx]
+        y_train = y[:split_idx]
+        X_test = X[split_idx:]
+        y_test = y[split_idx:]
+
+        return X_train, y_train, X_test, y_test

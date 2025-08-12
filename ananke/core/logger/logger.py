@@ -2,13 +2,12 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def get_logger(
     name: str,
     level: str = "INFO",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 ) -> logging.Logger:
     """

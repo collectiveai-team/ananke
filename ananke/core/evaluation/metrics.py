@@ -35,6 +35,21 @@ def compute_regression_metrics(
     return metrics
 
 
+def evaluate_predictions(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target_names: list[str] | None = None,
+    prefix: str = "",
+    event_threshold: float | None = None,
+) -> dict[str, float]:
+    """Evaluate predictions and return metrics."""
+    # Add underscore to prefix if provided and not empty
+    if prefix and not prefix.endswith("_"):
+        prefix = f"{prefix}_"
+
+    return compute_regression_metrics(y_true, y_pred, prefix)
+
+
 def plot_feature_target_prediction(
     feature: np.ndarray,
     target: np.ndarray,

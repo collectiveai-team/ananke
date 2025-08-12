@@ -28,6 +28,9 @@ class ModelConfig(BaseModel):
     )
     validation_params: dict[str, Any] | None = None
 
+    # Hyperparameter search configuration
+    hyperparameter_search: dict[str, Any] | None = None
+
     @field_validator("model_class", mode="before")
     @classmethod
     def resolve_model_class(cls, v):
