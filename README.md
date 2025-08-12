@@ -16,10 +16,10 @@ A comprehensive timeseries experimentation framework extracted from generalizabl
 ```bash
 # Install from source
 cd ananke
-pip install -e .
+uv pip install -e .
 
 # Install with all dependencies
-pip install -e ".[all]"
+uv pip install -e ".[all]"
 ```
 
 ## Quick Start
