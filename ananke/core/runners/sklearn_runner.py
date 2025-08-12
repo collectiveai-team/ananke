@@ -9,11 +9,6 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
-try:
-    import mlflow
-except ImportError:
-    mlflow = None
-
 from ananke.core.configs.data.config import DataConfig
 from ananke.core.configs.model.config import ModelConfig
 from ananke.core.data.meta.dataset import TimeSeriesData, TimeSeriesDataset
@@ -280,7 +275,9 @@ class SklearnRunner(BaseRunner):
 
         return pd.DataFrame(data)
 
-    def _perform_hyperparameter_search(self, X_train: np.ndarray, y_train: np.ndarray) -> BaseEstimator:
+    def _perform_hyperparameter_search(
+        self, X_train: np.ndarray, y_train: np.ndarray
+    ) -> BaseEstimator:
         """Perform hyperparameter search (private method for testing)."""
         if not self.model_config.hyperparameter_search:
             raise ValueError("Hyperparameter search not configured")
@@ -291,28 +288,32 @@ class SklearnRunner(BaseRunner):
 
         if search_config.get("method") == "grid":
             from sklearn.model_selection import GridSearchCV
+
             search_model = GridSearchCV(
                 base_model,
                 param_grid=search_config.get("param_grid", {}),
                 cv=search_config.get("cv", 5),
                 scoring=search_config.get("scoring"),
-                n_jobs=-1
+                n_jobs=-1,
             )
         else:
             from sklearn.model_selection import RandomizedSearchCV
+
             search_model = RandomizedSearchCV(
                 base_model,
                 param_distributions=search_config.get("param_grid", {}),
                 n_iter=search_config.get("n_iter", 10),
                 cv=search_config.get("cv", 5),
                 scoring=search_config.get("scoring"),
-                n_jobs=-1
+                n_jobs=-1,
             )
 
         search_model.fit(X_train, y_train)
         return search_model.best_estimator_
 
-    def _prepare_features(self, data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _prepare_features(
+        self, data: pd.DataFrame
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Prepare features for training and testing (private method for testing)."""
         # Extract features and target
         feature_cols = self.data_config.features

@@ -71,18 +71,21 @@ class DartsRunner(BaseRunner):
         self.test_series = series[train_size + val_size :]
 
         # Create TimeSeriesData objects for compatibility
+        # For forecasting, we need to set up the data properly:
+        # - Training data: use the training series for both series and target
+        # - Test data: use test series as the target (what we want to predict)
         train_data = [
             TimeSeriesData(
                 series=self.train_series,
-                target=self.train_series,  # For Darts, series and target are the same
+                target=self.train_series,  # For training, series and target are the same
             )
         ]
 
         val_data = (
             [
                 TimeSeriesData(
-                    series=self.val_series,
-                    target=self.val_series,
+                    series=self.train_series,  # Predict from training series
+                    target=self.val_series,    # Validate against validation series
                 )
             ]
             if self.val_series is not None
@@ -91,8 +94,8 @@ class DartsRunner(BaseRunner):
 
         test_data = [
             TimeSeriesData(
-                series=self.test_series,
-                target=self.test_series,
+                series=self.train_series,  # Predict from training series
+                target=self.test_series,   # Test against test series
             )
         ]
 
@@ -121,13 +124,9 @@ class DartsRunner(BaseRunner):
 
         logger.info("Training Darts model...")
 
-        # Train the model
+        # Train the model - most Darts models only accept the main series
         if hasattr(self.model, "fit"):
-            # For models that need explicit fitting
-            if self.val_series is not None:
-                self.model.fit(self.train_series, val_series=self.val_series)
-            else:
-                self.model.fit(self.train_series)
+            self.model.fit(self.train_series)
 
         logger.info("Darts model training completed")
 
@@ -139,17 +138,22 @@ class DartsRunner(BaseRunner):
         predictions = []
 
         for ts_data in data:
-            # Get the series to predict from
-            series = ts_data.series
-
-            # Make prediction
+            # For forecasting, we predict future values
+            # The number of predictions should match the target length
+            target_length = len(ts_data.target) if hasattr(ts_data.target, '__len__') else self.darts_config.forecast_horizon
+            # Make prediction from the training series
             if hasattr(self.model, "predict"):
-                pred = self.model.predict(
-                    n=self.darts_config.forecast_horizon, series=series
-                )
+                # Check if the model's predict method accepts 'series' parameter
+                # ExponentialSmoothing doesn't accept 'series', others do
+                if self.model_config.name == "exponential_smoothing":
+                    pred = self.model.predict(n=target_length)
+                else:
+                    pred = self.model.predict(
+                        n=target_length, series=self.train_series
+                    )
             else:
                 # For models that don't have predict method
-                pred = self.model.forecast(self.darts_config.forecast_horizon)
+                pred = self.model.forecast(target_length)
 
             # Convert to numpy array
             pred_values = pred.values()
@@ -248,18 +252,16 @@ class DartsRunner(BaseRunner):
     def load_model(self, path: str) -> None:
         """Load a trained Darts model."""
         try:
-            # Try to load using Darts method first
-            from darts.models import load_model
-
-            self.model = load_model(path)
-        except:
-            # Fallback to pickle
+            # Try to load using Darts class method
+            # We need to determine the model class from the saved model
+            # For now, we'll use a fallback approach with pickle
             import pickle
 
             with open(path, "rb") as f:
                 self.model = pickle.load(f)
-
-        logger.info(f"Darts model loaded from {path}")
+        except Exception as e:
+            logger.error(f"Failed to load model from {path}: {e}")
+            raise
 
     def backtest(
         self,
@@ -303,10 +305,10 @@ class DartsRunner(BaseRunner):
             time_col="timestamp",
             value_cols=[self.data_config.target_feature],
         )
-        
+
         # Split into train and test
         train_size = int(0.8 * len(ts))
         train_ts = ts[:train_size]
         test_ts = ts[train_size:]
-        
+
         return train_ts, test_ts

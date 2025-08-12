@@ -203,6 +203,7 @@ def run_experiment(
 validate_app = typer.Typer(help="Validate configuration files")
 app.add_typer(validate_app, name="validate")
 
+
 @validate_app.command("data-config")
 def validate_data_config(
     config_path: Path = typer.Argument(..., help="Path to data configuration file"),
@@ -214,6 +215,7 @@ def validate_data_config(
 
     try:
         import yaml
+
         from ananke.core.configs.data.config import DataConfig
 
         with open(config_path) as f:
@@ -226,6 +228,7 @@ def validate_data_config(
         console.print(f"❌ Validation failed: {e}")
         raise typer.Exit(1)
 
+
 @validate_app.command("model-config")
 def validate_model_config(
     config_path: Path = typer.Argument(..., help="Path to model configuration file"),
@@ -237,6 +240,7 @@ def validate_model_config(
 
     try:
         import yaml
+
         from ananke.core.configs.model.config import ModelConfig
 
         with open(config_path) as f:

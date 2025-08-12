@@ -74,13 +74,13 @@ class BaseExperiment(ABC):
 
         # Setup MLflow
         self._setup_mlflow()
-        
+
         # Setup output directory
         self._setup_output_directory()
 
         # Get all run combinations
         combinations = self._generate_run_combinations()
-        
+
         logger.info(f"Running {len(combinations)} experiment combinations")
 
         experiment_results = {}
@@ -93,9 +93,11 @@ class BaseExperiment(ABC):
             logger.info(f"Running: {run_name}")
 
             try:
-                results = self._run_single_experiment(data_config, model_config, run_name)
+                results = self._run_single_experiment(
+                    data_config, model_config, run_name
+                )
                 experiment_results[run_name] = results
-                
+
                 if "error" not in results:
                     logger.info(f"Completed: {run_name}")
                 else:
@@ -192,11 +194,11 @@ class BaseExperiment(ABC):
                 comparison_data.append(row)
 
         df = pd.DataFrame(comparison_data)
-        
+
         # Sort by the first metric in ascending order (best performance first)
         if len(df) > 0 and len(metrics) > 0 and metrics[0] in df.columns:
             df = df.sort_values(by=metrics[0], ascending=True).reset_index(drop=True)
-        
+
         return df
 
     def _setup_mlflow(self) -> None:
@@ -217,17 +219,19 @@ class BaseExperiment(ABC):
         """Generate all combinations of data and model configs (private method for testing)."""
         data_configs = self.setup_data_configs()
         model_configs = self.setup_model_configs()
-        
+
         combinations = []
         for data_config in data_configs:
             for model_config in model_configs:
                 run_name = f"{data_config.name}_{model_config.name}"
-                combinations.append({
-                    "data_config": data_config,
-                    "model_config": model_config,
-                    "run_name": run_name
-                })
-        
+                combinations.append(
+                    {
+                        "data_config": data_config,
+                        "model_config": model_config,
+                        "run_name": run_name,
+                    }
+                )
+
         return combinations
 
     def _run_single_experiment(
@@ -268,12 +272,12 @@ class BaseExperiment(ABC):
         """Save experiment results to files."""
         results_dir = self.output_dir / "results"
         results_dir.mkdir(exist_ok=True)
-        
+
         # Save detailed results as JSON
         results_file = results_dir / "experiment_results.json"
         with open(results_file, "w") as f:
             json.dump(self.results, f, default=str, indent=2)
-        
+
         # Save comparison CSV if we have results
         if self.results:
             comparison_data = []
@@ -282,7 +286,7 @@ class BaseExperiment(ABC):
                     row = {"run_name": run_name}
                     row.update(results)
                     comparison_data.append(row)
-            
+
             if comparison_data:
                 comparison_df = pd.DataFrame(comparison_data)
                 comparison_file = results_dir / "run_comparison.csv"

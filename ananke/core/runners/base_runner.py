@@ -17,6 +17,7 @@ import torch
 from ananke.core.configs.data.config import DataConfig
 from ananke.core.configs.model.config import ModelConfig
 from ananke.core.data.meta.dataset import TimeSeriesData, TimeSeriesDataset
+from ananke.core.utils.mlflow_utils import start_run
 
 logger = logging.getLogger(__name__)
 
@@ -149,11 +150,11 @@ class BaseRunner(ABC):
 
         self.end_time = time.time()
         self.results["runtime_seconds"] = self.end_time - self.start_time
-        
+
         # Set status if not already set (e.g., by error handling)
         if "status" not in self.results:
             self.results["status"] = "completed"
-            
+
         logger.info(
             f"Benchmark run completed in {self.results['runtime_seconds']:.2f} seconds"
         )
@@ -165,14 +166,11 @@ class BaseRunner(ABC):
             "experiment_name", "timeseries_experiments"
         )
 
-        # Set or create experiment
-        try:
-            mlflow.set_experiment(experiment_name)
-        except Exception:
-            mlflow.create_experiment(experiment_name)
-            mlflow.set_experiment(experiment_name)
-
-        return mlflow.start_run(run_name=run_name or self.run_config.name)
+        return start_run(
+            run_name=run_name or self.run_config.name,
+            experiment_name=experiment_name,
+            nested=False,
+        )
 
     def _log_configs_to_mlflow(self) -> None:
         """Log configurations to MLflow."""
@@ -341,4 +339,4 @@ class BaseRunner(ABC):
 
     def cleanup(self) -> None:
         """Clean up resources after the benchmark."""
-        pass
+        return

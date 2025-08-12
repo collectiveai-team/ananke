@@ -65,7 +65,7 @@ class AirPassengersExperiment(BaseExperiment):
                 model_class=AutoARIMA,
                 model_params={
                     "seasonal": True,
-                    "m": 12,  # Monthly seasonality
+                    "season_length": 12,  # Monthly seasonality
                 },
                 type="darts",
             ),
@@ -73,7 +73,6 @@ class AirPassengersExperiment(BaseExperiment):
                 name="exponential_smoothing",
                 model_class=ExponentialSmoothing,
                 model_params={
-                    "seasonal": "multiplicative",
                     "seasonal_periods": 12,
                 },
                 type="darts",
