@@ -36,7 +36,7 @@ dependencies = [
     "torch>=2.0.0",
     "pytorch-lightning>=2.0.0",
     # Timeseries specific
-    "darts>=0.27.0",
+    "u8darts[notorch]>=0.36.0",
     "prophet>=1.1.0",
     "catboost>=1.2.0",
     # Visualization
